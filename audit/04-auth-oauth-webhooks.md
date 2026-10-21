@@ -111,3 +111,22 @@ Static review, read-only. `node_modules` was not installed, so library internals
 ### AUTH-09 — The 20-active-key cap can be exceeded concurrently
 
 **Severity: Info.** `lib/actions/api-keys.js:67-71` counts then creates, non-atomically. The 10/hour key-creation limit caps the overshoot at ~10. **Fix:** conditional counter (`$inc` with `activeKeys < 20`) or a transaction.
+
+## Verified controls
+
+These hold as described in `SECURITY.md` unless noted.
+
+- **OAuth access tokens** (`lib/oauth.js:58-89`): issuer, audience `/mcp`, `typ: at+jwt`, expiry (jose), DPoP binding via `enforceDpopBinding` with a replay store, `mailcheap:full` scope. JWKS read from the DB, not over HTTP. ID tokens fail on `typ`/audience. The JWT plugin's `/token` is disabled and `disableSettingJwtHeader` set.
+- **Consent binding:** tokens carry the consent id (`connection_id`) and that consent must still exist with the same `_id`, `userId`, `clientId` (`lib/oauth.js:92-104`). Disconnecting deletes access tokens, refresh tokens and consent (`lib/oauth.js:182-201`). Allowlist removal and pending deletion re-checked on every request.
+- **Better Auth management routes** and the email-OTP HTTP routes are closed (`lib/auth.js:53-89`). New users must be verified and allowlisted; new sessions re-checked in DB hooks.
+- **Consent page:** signed authorization request verified (`verifyOAuthQueryParams`); Allow/Cancel are server actions with origin check (CSRF); `frame-ancestors 'none'` + `X-Frame-Options` on every non-embed path (`next.config.mjs:7,56`); post-sign-in redirects go to Better Auth's validated URL or `toSafeNextPath` (same-site path only, `lib/validation.js:13`).
+- **Dynamic client registration:** exact-match redirect URI allowlist, public clients only, rate-limited (see AUTH-02/05).
+- **API keys:** 32 random bytes, `mc_` prefix + strict format regex before lookup, stored as SHA-256 and looked up by hash, `revokedAt: null` filter (revocation immediate), deletion/allowlist re-checked per request, key level enforced in `runAction` and when MCP builds its tool list, 300 req/min per key and per OAuth connection.
+- **REST API:** CORS only for `permission: "signups"` actions; unknown errors → `internal_error`; body must be a plain object; path params override body fields.
+- **Contacts export links:** HKDF-derived HMAC, constant-time compare, 1 h expiry, ObjectId validation, plan re-check.
+- **Stripe:** `constructEvent` with secret (300 s tolerance); 503 when unconfigured, 404 off Cloud.
+- **PostShiba:** HMAC-SHA256 over `ts.body` raw bytes, constant-time, ±5 min, 503 when secret unset.
+- **SNS:** `SigningCertURL` must exactly match `https://sns.<region>.amazonaws.com/SimpleNotificationService-*.pem` (no port/userinfo/query/fragment); cert fetch refuses redirects, has a timeout; `SubscribeURL` same host check; `TopicArn` checked first; 503 when unset; signing string per AWS spec.
+- **Cron:** `withCronSecret` fails closed (503) when `CRON_SECRET` is unset, constant-time `Bearer` compare; all 3 cron routes wrapped.
+- **QStash:** all 6 job routes wrapped; missing keys → 503, bad signature → 403; `devMode: false` (see AUTH-04).
+- **Google Postmaster OAuth:** `requireAdmin` on connect and callback; 24-byte state + PKCE verifier in an httpOnly Secure `__Host-` cookie, constant-time state compare, cleared on callback; scope checked; refresh token stored encrypted.
