@@ -74,3 +74,22 @@ Worst page: `app/(app)/contacts/[id]/page.js` (647 lines: loading + timeline + J
 - **Silent defaults:** `getAppUrl()` falls back to `http://localhost:3000` off Vercel (`lib/config.js:101`) — emails would carry localhost links; `MONGODB_URI` only checked at first query; empty `ADMIN_EMAILS` + `ALLOWED_EMAILS` means nobody can sign in (documented, not surfaced by health).
 - **Hard dependency on Upstash QStash** and a public `APP_URL` for sending (`lib/sending.js:131,720`), although the README says "any Node.js 22+ host". No Dockerfile/compose.
 - `next.config.mjs` is tidy: security headers, separate embed headers, BotID only on Vercel.
+
+## 6. Tests
+
+- `node:test` + `assert/strict`; a loader (`tests/setup/hooks.mjs`) resolves `@/`, compiles JSX and replaces Next.js APIs and every external SDK with stubs (`tests/stubs/*`). Global `fetch` throws on unexpected network calls (`tests/helpers/app.mjs:19-52`).
+- **Real MongoDB:** integration tests spawn a throwaway single-node replica-set `mongod` per file (`tests/helpers/mongo.mjs`) and import route handlers / server actions unchanged (~70 `app/` modules).
+- **Strong guard tests:** action parity across surfaces, account isolation (`isolation.test.mjs`), help-center links, alert kinds, security headers, self-host behaviour.
+- **Routes without a direct test:** `app/api/webhooks/ses/route.js` (main bounce/complaint ingress), `app/api/cron/list-hygiene`, `app/api/jobs/import-contacts`, `app/api/jobs/send-summary`, `app/api/v1/openapi.json`, `app/api/views`.
+- **Lib modules without a test file:** `lib/admin-alerts.js` (351 lines), `content-review-decisions.js`, `signup-email-review.js`, `email-provider/ses.js`, `google-postmaster.js`, `postshiba-status.js`, `tenant-events.js`.
+- No browser/E2E tests (editor, import dialog, autosave), no coverage reporting, no query-plan (`explain()`) checks.
+- `tests/helpers/mongo.mjs:7` imports `mongodb`, only a transitive dependency.
+- **No CI** (no `.github/`): lint/test/build rely on contributors, and the suite needs a local `mongod`.
+
+## 7. Frontend
+
+- Lazy loading used where it matters (`components/ButtonSearch.jsx:8`); TipTap confined to editor components.
+- `lib/render-email.js` (+ `marked`, `themes`, `clean-html`) bundled into `FormCampaign`/`FormNewsletter`/`FormTheme` for live previews, debounced with `useDeferredValue` — acceptable.
+- **CSV import freezes the tab:** `components/DialogImportContacts.jsx:130` runs `Papa.parse` on the main thread for files up to 100 MB / 250k rows (`lib/csv-import.js:104`) without `worker: true`.
+- `cn@0.4.0` (`package.json:41`, `lib/utils.js:1`) replaces shadcn's usual `clsx` + `tailwind-merge`; `tailwind-merge` isn't in the lockfile, so conflicting Tailwind classes in `className` overrides may not merge. Small single-purpose package — worth checking provenance.
+- **Accessibility is good:** icon-only buttons have `aria-label`s, Radix-based `ui/` primitives with `focus-visible` styles, several `prefers-reduced-motion` blocks in `globals.css`.
