@@ -93,3 +93,45 @@ Worst page: `app/(app)/contacts/[id]/page.js` (647 lines: loading + timeline + J
 - **CSV import freezes the tab:** `components/DialogImportContacts.jsx:130` runs `Papa.parse` on the main thread for files up to 100 MB / 250k rows (`lib/csv-import.js:104`) without `worker: true`.
 - `cn@0.4.0` (`package.json:41`, `lib/utils.js:1`) replaces shadcn's usual `clsx` + `tailwind-merge`; `tailwind-merge` isn't in the lockfile, so conflicting Tailwind classes in `className` overrides may not merge. Small single-purpose package — worth checking provenance.
 - **Accessibility is good:** icon-only buttons have `aria-label`s, Radix-based `ui/` primitives with `focus-visible` styles, several `prefers-reduced-motion` blocks in `globals.css`.
+
+## Findings
+
+| ID | Sev. | Finding | Refs | Recommendation |
+|---|---|---|---|---|
+| OPS-01 | High | `vercel.json` missing though README/AGENTS.md describe 3 Vercel Crons; postmaster, hourly and list-hygiene never run on a "Deploy with Vercel" install; list-hygiene never mentioned in README | README:218,247; AGENTS.md:30; `app/api/cron/*` | Commit `vercel.json` with the 3 crons; document all 3 with schedules for other hosts |
+| OPS-02 | Medium | OpenAI content check turns on implicitly when `OPENAI_API_KEY` is set; undocumented; sends content to a third party | `lib/content-review.js:113-120`; `.env.example` | Require an explicit `CONTENT_REVIEW=on` + dedicated key; document in `.env.example`, README, SECURITY.md |
+| OPS-03 | Medium | Startup/health only validate secret lengths; `APP_URL` silently localhost; no DB ping; `register()` throwing likely makes the documented 503 unreachable | `lib/config.js:18-31,99-102`; `app/api/health/route.js`; `instrumentation.js:6` | Check required self-host vars, `APP_URL` off Vercel, add `?deep=1` DB ping, reconcile throw vs 503 |
+| OPS-04 | Medium | No error tracking; some whole error objects logged (possible recipient addresses) | `instrumentation.js`; `lib/sns-webhook.js:42`; `lib/postshiba-webhook.js:77`; `lib/actions/run-action.js:61` | Export `onRequestError`; optional Sentry/OTel; log `error.message` + ids only |
+| OPS-05 | Low | `getClientIp` trusts first XFF entry (see AUTH-02) | `lib/rate-limit.js:71-74` | Trusted proxy / hop-count setting |
+| OPS-06 | Low | `autoIndex` on every cold start, no index migrations; 5 s idle timeout churns on long-running hosts | `lib/db.js:14-19` | Disable `autoIndex` in prod, add index sync script, different idle timeout off Vercel |
+| OPS-07 | Info | Self-hosting requires Upstash QStash + public URL; no Dockerfile/compose | `lib/sending.js:131`; README:86,201 | State it in "What you need"; provide a compose file |
+| PERF-01 | Medium | List-hygiene cron scans every contact of every account on a computed domain, several times; unbounded restore | `lib/list-hygiene.js:40-57,80,101-105` | Store + index `emailDomain`; bound restore |
+| PERF-02 | Medium | Admin page: 3 full `Message` scans | `lib/sending-capacity.js:41-52`; `lib/admin-stats.js:89-100` | Index `{sentAt:1}` or daily counters; drop/cache the all-time count |
+| PERF-03 | Medium | Contacts page: 6 counts + up to 101 segment counts + `$unwind` tags per view | `app/(app)/contacts/page.js:66-71`; `lib/segment-queries.js:75-82`; `lib/contacts.js:114-130,318-326` | Lazy/cached segment counts; tag-count cache |
+| PERF-04 | Medium | `Message`/`Event` grow forever; `Event` never read but 4 indexes + raw PII | `models/Message.js`; `models/Event.js`; `lib/email-events.js:187` | TTL or drop `Event`; roll up and archive old messages |
+| PERF-05 | Medium | Audience query: unindexed 6-key sort + whole suppression list in `$nin` | `lib/audience.js:2-9,19`; `lib/sending.js:387-401` | Matching index; rely on the per-batch suppression check instead of `$nin` |
+| PERF-06 | Low | ~9 DB ops/email, per-message `Campaign.exists` and hot-document `$inc` | `lib/sending.js:1000,874-891` | Check status per batch; aggregate `$inc` per batch |
+| PERF-07 | Low | Any publish invalidates every archive | `lib/archive-data.js:146-148` | Per-newsletter `revalidateTag` |
+| PERF-08 | Low | CSV up to 100 MB parsed on main thread | `components/DialogImportContacts.jsx:56,130` | `Papa.parse(…, { worker: true })` / chunked |
+| PERF-09 | Low | Campaign report `$facet` on every view; id sets loaded in memory | `lib/campaign-report.js:10-18`; `lib/sending.js:376-385,498-503` | Cache finished-campaign reports; stream ids |
+| QUAL-01 | Medium | `lib/sending.js` (1307 lines) mixes too many concerns | `lib/sending.js:940-1120` | Split queue / batch / signup / test; extract per-message decision as a pure function |
+| QUAL-02 | Low | Duplicated `escapeHtml` ×3, `escapeRegex` ×4 | see §1 | One shared module each |
+| QUAL-03 | Low | Action `output` schemas never enforced on REST | `lib/api/rest.js`; `lib/actions/define-action.js` | Validate outputs in tests or dev |
+| QUAL-04 | Low | Read queries scattered; skip vs cursor pagination | `app/(app)/contacts/[id]/page.js:55-84`; `lib/contacts.js:119-123`; `lib/actions/contacts.js:280` | Move page queries to `lib/`; reuse cursor pagination |
+| QUAL-05 | Low | Swallowed errors lose root cause | `lib/import-jobs.js:113`; `lib/summary-send.js:57`; `lib/campaign-queries.js:102` | Log `error.message` + ids before falling back |
+| QUAL-06 | Info | Misnamed `lib/health.js`; `cn@0.4.0` instead of `clsx` + `tailwind-merge` | `lib/health.js`; `package.json:41` | Rename (`lib/rate-tone.js`); verify `cn` |
+| TEST-01 | Medium | No CI | repo root | GitHub Actions with `mongod` service: test, lint, build |
+| TEST-02 | Medium | SES webhook and several job routes untested; 7 lib modules without tests | see §6 | Route tests following `tests/account-events.test.mjs` |
+| TEST-03 | Low | No E2E, coverage or `explain()` checks | `tests/` | Playwright smoke suite, `--experimental-test-coverage`, query-plan tests for PERF-01..05 |
+| TEST-04 | Low | Test helper imports transitive `mongodb` | `tests/helpers/mongo.mjs:7` | Add to `devDependencies` |
+
+## Positive observations
+
+- One action pipeline for dashboard, REST and MCP, with docs/OpenAPI generated from the same zod schemas and a parity test — removes a whole class of drift and authorization bugs.
+- Tenant scoping enforced inside Mongoose, with an explicit, greppable opt-out.
+- Integration tests on a real replica-set `mongod`, importing routes/actions unchanged, with all external services stubbed and network calls trapped.
+- Idempotent, retry-safe sending (partial unique indexes, claim-by-status, dedup ids, first-send slicing with auto-pause/block).
+- Deliberate index design on Contact, with comments tying indexes to queries.
+- Bounded arrays and TTLs where it matters.
+- Self-host friendliness: refuses short secrets, `SENDING_ENABLED` kill switch, in-memory rate-limit fallback that alerts admins.
+- Solid accessibility basics.
