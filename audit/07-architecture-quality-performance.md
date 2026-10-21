@@ -37,3 +37,25 @@ Static review, read-only (nothing built or run).
 | 15 | `lib/auth.js` | 415 | |
 
 Worst page: `app/(app)/contacts/[id]/page.js` (647 lines: loading + timeline + JSX). Functions are otherwise small, and comments explain constraints rather than restate code.
+
+## 3. Data model & performance
+
+**Connections** (`lib/db.js`): promise cached on `globalThis`, reset on failure, `maxPoolSize: 10`, `maxIdleTimeMS: 5000`, `attachDatabasePool` for Vercel — right for serverless, but causes reconnect churn on a long-running self-hosted `npm start`. No `autoIndex` setting: Mongoose calls `createIndex` for every model on every cold start, and nothing migrates or drops indexes.
+
+**Unbounded growth**
+- `Message` (one doc per recipient per send) and `Event` (raw provider `data` + email) have no TTL/archival; only the account purge deletes them.
+- `Event` is **write-only** — created at `lib/email-events.js:187`, never read in `lib/` or `app/` — yet carries 4 indexes (`models/Event.js:7,21-23`).
+- Bounded arrays done well: `statusChanges` (100), alert occurrences, dismissals via `$slice`; TTLs on `ImportChunk` and `GlobalSuppression`.
+
+**Missing indexes / full scans**
+- **Admin dashboard: 3 full scans of `Message` per load** — `lib/sending-capacity.js:41-52` matches on `sentAt` only (no index leads with it); `lib/admin-stats.js:89-100` uses `accountId: {$nin: admins}`; `:100` counts every message ever sent.
+- **List-hygiene cron (every 6 h) scans every contact of every account** — groups on a computed domain (`$split` of email) (`lib/list-hygiene.js:40-57`), `restoreContacts` uses `Number.MAX_SAFE_INTEGER` as limit (`:80`), plus `findDelistedSpamDomains` (`:101`).
+- **Audience query on every send:** six-key sort `AUDIENCE_SORT` (`lib/audience.js:2-9`) with no matching index (closest `{newsletterId,status,lastOpenAt}`), plus the account's **whole suppression list in a `$nin`** (`lib/audience.js:19`, `lib/sending.js:387-389`), which grows toward the 16 MB BSON limit.
+- **Contacts page: up to ~110 queries per view** — 6 status counts, 1 + up to 100 segment counts (some case-insensitive `$regex`), an `$unwind` tag aggregation, a `skip` find (`app/(app)/contacts/page.js:66-71`, `lib/segment-queries.js:75-82`, `lib/contacts.js:118-123,318-326`). The detail page repeats the tag aggregation. No caching.
+- **Campaign report** runs a `$facet` over all of a campaign's messages on every view (`lib/campaign-report.js:10-18`).
+
+**Send loop** (`lib/sending.js:993-1110`): per message a `Campaign.exists` (`:1000`), a claim `updateOne` (`:1057`), and `recordSent` (Message update + Campaign `$inc` + Contact update) — ~9 DB ops per email (acknowledged in `lib/config.js:128`), with the per-message `$inc` serialising on one hot Campaign document. `findPreviousMessages` (`:376-385`) and `holdFirstSendRest` (`:498-503`) load whole campaigns' ids into memory.
+
+**Cache invalidation is global:** `revalidateArchive()` (`lib/archive-data.js:146-148`) revalidates the `/archive/[slug]` layout, so any account publishing invalidates every archive.
+
+**Done well:** compound indexes on Contact with `_id` tiebreakers matching paginated sorts (`models/Contact.js:88-96`); partial unique indexes for idempotent sends (`models/Message.js:46-54`); partial index on queued messages (`:63`).
