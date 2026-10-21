@@ -59,3 +59,18 @@ Worst page: `app/(app)/contacts/[id]/page.js` (647 lines: loading + timeline + J
 **Cache invalidation is global:** `revalidateArchive()` (`lib/archive-data.js:146-148`) revalidates the `/archive/[slug]` layout, so any account publishing invalidates every archive.
 
 **Done well:** compound indexes on Contact with `_id` tiebreakers matching paginated sorts (`models/Contact.js:88-96`); partial unique indexes for idempotent sends (`models/Message.js:46-54`); partial index on queued messages (`:63`).
+
+## 4. Error handling & observability
+
+- ~41 `catch {` blocks + ~19 `.catch(() => null|{})`; most deliberate and commented. A few lose the root cause: `lib/import-jobs.js:113` (inline import failure re-queued, never logged), `lib/summary-send.js:57` (failures counted, not logged), `lib/campaign-queries.js:102` (any DB error becomes "0 remaining contacts").
+- 105 `console.*` calls with `[area]` prefixes, mostly ids. Some log whole error objects that may contain provider bodies with recipient addresses: `lib/sns-webhook.js:42`, `lib/postshiba-webhook.js:77`, `lib/actions/campaigns.js:794`, `lib/actions/run-action.js:61`. Sign-in codes logged in development only (intended).
+- **No error tracking / structured logs:** `instrumentation.js` only validates config; no `onRequestError`, no Sentry/OTel, no request ids. Telegram alerts (`lib/alerts.js`, `lib/telegram.js`) partly compensate.
+- **Health endpoint checks config only:** `app/api/health/route.js:8-14` returns `getConfigProblems()` (secret lengths, cloud keys); never pings MongoDB, doesn't check `MONGODB_URI`, `APP_URL`, `ADMIN_EMAILS`, `EMAIL_FROM`, QStash. And since `register()` throws on bad config (`instrumentation.js:6`), the 503 promised in the README probably can't be served (depends on Next.js behaviour; not verified).
+
+## 5. Configuration & self-hosting
+
+- **Undocumented OpenAI integration:** `OPENAI_API_KEY`, `OPENAI_MODERATION_API_KEY`, `CONTENT_REVIEW` (`lib/content-review.js:113-120`) are absent from `.env.example`, README and SECURITY.md. The content check turns on whenever `OPENAI_API_KEY` is set — a very common variable — silently sending every issue and signup email to OpenAI and possibly holding campaigns.
+- **`vercel.json` is missing** (verified: not in the repo), although README ("Vercel Cron then runs `/api/cron/postmaster` every day (`vercel.json`)") and `AGENTS.md` describe three crons (hourly, postmaster, list-hygiene every 6 h). A "Deploy with Vercel" install schedules none of them, and the README never mentions `/api/cron/list-hygiene`.
+- **Silent defaults:** `getAppUrl()` falls back to `http://localhost:3000` off Vercel (`lib/config.js:101`) — emails would carry localhost links; `MONGODB_URI` only checked at first query; empty `ADMIN_EMAILS` + `ALLOWED_EMAILS` means nobody can sign in (documented, not surfaced by health).
+- **Hard dependency on Upstash QStash** and a public `APP_URL` for sending (`lib/sending.js:131,720`), although the README says "any Node.js 22+ host". No Dockerfile/compose.
+- `next.config.mjs` is tidy: security headers, separate embed headers, BotID only on Vercel.
