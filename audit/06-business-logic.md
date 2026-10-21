@@ -106,3 +106,16 @@ Signed click-tracking links never expire, and some email kinds that bypass conte
 ### LOGIC-12 — No tracking opt-out; content check fails open (Info)
 
 **Where:** `lib/tracking.js`, `lib/sending.js:210`, `lib/content-review.js:439-449`. Every campaign/welcome/test email gets the pixel and link rewriting, with no per-newsletter switch (relevant for ePrivacy-minded EU senders). When the classifier errors, the issue goes out unchecked (documented, admins alerted). **Fix:** per-newsletter tracking toggle; hold sends on check errors for accounts younger than N days.
+
+## Verified controls
+
+- **At most one send per message:** atomic `queued → sent` claim before the provider call (`lib/sending.js:1057`); partial unique indexes on campaign and last-chance messages (`models/Message.js:45-54`); QStash redelivery and duplicate batch jobs are harmless; provider timeouts classified as "fail", not "retry"; PostShiba transactional sends use the message id as idempotency key.
+- **Plan limit enforced at send time:** `claimPlanEmails` is a single atomic pipeline update; concurrent batches can't exceed `limit - emailsSent`; campaigns pause with `plan_limit_emails`.
+- **Each batch re-checks:** campaign status, per-account `Suppression`, `GlobalSuppression`, contact status, account block/plan — unsubscribed, bounced and complained contacts are skipped even if queued earlier.
+- **Conditional status transitions** everywhere (`pauseCampaign`, `settleCampaign`, `queueCampaign`, scheduling); stale scheduled/purge jobs are no-ops.
+- **Locked campaigns:** only draft/scheduled are editable; content review is tied to a content hash.
+- **Stripe:** verified signatures, subscriptions re-read from Stripe on every event, `invoice.paid` resets usage only when `paidThrough` advances, checkout sync checks `client_reference_id`, prices compared with `plans.js`.
+- **Signed links:** unsubscribe/confirm/keep tokens are HMACs with separate derived keys and constant-time compare; GET never unsubscribes; confirmation needs a POST (link scanners don't confirm); keep/confirm tokens expire.
+- **Click links:** unsigned links get an interstitial; blocked accounts' links are disabled.
+- **Imports:** consent text and time recorded; role, disposable, trap, typo, no-MX, suppressed, deleted and globally-suppressed rows dropped; imports never upgrade an existing contact's status; chunks expire after 7 days.
+- **Purge:** S3/Blob images deleted via `Upload` records + CloudFront invalidation; messages, events, contacts, suppressions deleted by `accountId`; purge postponed while Stripe still bills.
