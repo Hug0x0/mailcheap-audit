@@ -59,3 +59,19 @@ With a forged `Referer`, anyone can POST to `/api/embed/<public newsletter id>` 
 ### INJ-05 — SSRF blocklist misses a few legacy IPv6 forms
 
 **Severity: Info.** `lib/remote-image.js:28-37` handles IPv4-mapped addresses correctly, but not IPv4-compatible `::/96`, 6to4 `2002::/16`, Teredo `2001::/32`. Not routed to local addresses on modern hosts, and fetches are HTTPS:443 only, ruling out metadata endpoints. **Suggestion:** add those ranges, or allow only public unicast.
+
+## Verified controls
+
+- **Archive XSS:** rich and Markdown issues go through the regex cleaner then `sanitize-html` with a tag/attribute allowlist (`http`, `https`, `mailto` only; protocol-relative off). HTML issues render in `<iframe srcdoc sandbox="allow-same-origin allow-popups…">` without `allow-scripts`/`allow-forms`, after `keepSafeUrls`. Admin previews use `sandbox=""`. React escapes all other customer text. `socialLinks` require `https://`.
+- **JSON-LD:** `components/ScriptJsonLd.jsx` escapes `<` as `<` — no `</script>` breakout.
+- **Theme CSS:** every value goes through `normalizeTheme` (hex-only colors, allowlisted fonts, enums) before `StyleTheme`, email CSS or embed CSS. Nothing free-form reaches CSS.
+- **Merge tags:** HTML-escaped (quotes included); fallbacks decoded then re-escaped; subjects drop CR/LF (`fillSubject`).
+- **Header injection:** `formatFromAddress` strips CR, LF, `"`, `\` and RFC 2047-encodes non-ASCII; PostShiba raw `Subject` always base64 encoded-words; Reply-To/from pass a strict dot-atom regex; SES/Resend take structured JSON.
+- **NoSQL injection:** every REST/MCP/dashboard action validated by a strict zod `z.object` (no `any`/`record`/`passthrough`); REST body must be a plain object; segment rules compile from allowlisted fields/ops with escaped values; public routes coerce with `String()`/`normalizeEmail`/`isObjectIdString`.
+- **ReDoS:** every user value placed in a regex is escaped; cleaner patterns bounded; Markdown has a parse deadline.
+- **SSRF:** `fetchRemoteImage` — https:443 only, no userinfo, private/reserved ranges blocked at connect time via a custom `lookup` (all addresses), IP literals re-checked, each of up to 3 redirects re-validated, size capped while streaming. SNS URLs restricted to `sns.<region>.amazonaws.com` with `redirect: "error"`. `next/image` remote patterns limited to Blob and the CDN.
+- **CSV formula injection:** `toCell` prefixes `'` to cells starting with `= + - @ \t \r`, quotes correctly.
+- **Open redirects:** `toSafeNextPath` allows `/path?simple=query` only; click tracking redirects only signed links (unsigned → interstitial); `/p/[slug]` only redirects to the newsletter's own URLs.
+- **Uploads:** type from magic bytes (PNG/JPEG/GIF/WebP, **no SVG**), stored `ContentType` from detection, 4 MB cap, key prefix from the account, slugified names, `POST /api/uploads` requires `Sec-Fetch-Site: same-origin`.
+- **Host routing:** archive hosts only reach archive rewrites and link endpoints; reserved subdomains never resolve as archives.
+- **Embed:** form strings escaped; `allowedDomains` validated before going into `frame-ancestors`; `embed.js` checks `event.origin` and `event.source`; height `postMessage` carries only a number.
