@@ -10,7 +10,21 @@ Independent code audit of [marclou/mailcheap](https://github.com/marclou/mailche
 
 ## Reports
 
-See [`audit/`](audit) — one file per area. Start with [`audit/00-summary.md`](audit/00-summary.md).
+Start with the **[executive summary](audit/00-summary.md)**.
+
+| Report | Area |
+|---|---|
+| [00-summary](audit/00-summary.md) | Verdict, severity breakdown, top 10 |
+| [01-inventory](audit/01-inventory.md) | Stack, size, history, configuration |
+| [02-dependencies](audit/02-dependencies.md) | `npm audit` on the lockfile |
+| [03-authz-tenant-isolation](audit/03-authz-tenant-isolation.md) | Authorization & multi-tenancy |
+| [04-auth-oauth-webhooks](audit/04-auth-oauth-webhooks.md) | Sign-in, API keys, OAuth/MCP, webhooks, jobs |
+| [05-input-handling](audit/05-input-handling.md) | XSS, injection, SSRF, CSV, uploads |
+| [06-business-logic](audit/06-business-logic.md) | Sending, billing, compliance, tracking |
+| [07-architecture-quality-performance](audit/07-architecture-quality-performance.md) | Architecture, perf, ops, tests, frontend |
+| [08-recommendations](audit/08-recommendations.md) | Prioritised action plan |
+
+**Headline:** 0 critical, 1 high (ops), 21 medium, 25 low, 14 info. No cross-account data access found. Two medium security findings are withheld pending private disclosure — see [DISCLOSURE.md](DISCLOSURE.md).
 
 ## Disclaimer
 
