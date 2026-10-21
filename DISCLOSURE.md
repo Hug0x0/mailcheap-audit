@@ -5,6 +5,6 @@ Two findings have real-world impact on users of the hosted service and self-host
 | ID | Area | Severity | Status |
 |---|---|---|---|
 | INJ-01 | Public image route — resource exhaustion (DoS) | Medium | Reported privately 2026-10-22 |
-| AUTHZ-01 | Low-privilege API key scope | Medium | Not yet reported |
+| AUTHZ-01 | Low-privilege API key scope | Medium | Reported privately 2026-10-22 |
 
 All other findings are hardening, compliance, operational or quality issues and are published in full.
