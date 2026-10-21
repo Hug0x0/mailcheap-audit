@@ -20,9 +20,9 @@ The weaknesses are elsewhere:
 |---|---:|---|
 | Critical | 0 | — |
 | High | 1 | OPS-01 |
-| Medium | 22 | AUTHZ-01\*, INJ-01\*, AUTH-01, LOGIC-01…06, OPS-02…04, PERF-01…05, QUAL-01, TEST-01, TEST-02, AUTH-02 (self-host) |
-| Low | 27 | AUTHZ-02, AUTH-03…06, INJ-02, INJ-03, LOGIC-07…11, OPS-05, OPS-06, PERF-06…09, QUAL-02…05, TEST-03, TEST-04, DEP-01 |
-| Info | 15 | AUTHZ-03…06, AUTH-07…09, INJ-04, INJ-05, LOGIC-12, OPS-07, QUAL-06, DEP-02, DEP-03 |
+| Medium | 21 | AUTHZ-01\*, INJ-01\*, AUTH-01, LOGIC-01…06, OPS-02…04, PERF-01…05, QUAL-01, TEST-01, TEST-02, AUTH-02 (self-host) |
+| Low | 25 | AUTHZ-02, AUTH-03…06, INJ-02, INJ-03, LOGIC-07…11, OPS-05, OPS-06, PERF-06…09, QUAL-02…05, TEST-03, TEST-04, DEP-01 |
+| Info | 14 | AUTHZ-03…06, AUTH-07…09, INJ-04, INJ-05, LOGIC-12, OPS-07, QUAL-06, DEP-02, DEP-03 |
 
 \* details withheld pending private disclosure — see [DISCLOSURE.md](../DISCLOSURE.md).
 
